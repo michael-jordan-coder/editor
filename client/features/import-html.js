@@ -14,13 +14,13 @@ const LOOKS_LIKE_HTML = /<\s*(!doctype|html|body|div|section|main|header|footer|
 export const looksLikeHtml = (text) => LOOKS_LIKE_HTML.test(text ?? "");
 
 // A value is kept only when it differs from what an unstyled element would have.
-const NONE = new Set(["", "none", "normal", "auto", "0px", "0", "rgba(0, 0, 0, 0)", "static", "visible", "start", "baseline", "stretch", "nowrap", "row", "repeat", "0% 0%", "auto auto"]);
-const DEFAULTS = { opacity: "1", flexShrink: "1", flexBasis: "auto", minWidth: "0px", minHeight: "0px", maxWidth: "none", maxHeight: "none", textDecorationLine: "none", textTransform: "none", whiteSpace: "normal", transform: "none" };
-const pick = (cs, names) => Object.fromEntries(names.map((n) => [n, cs[n]]).filter(([n, v]) => v != null && !NONE.has(v) && v !== DEFAULTS[n]));
+const NONE = new Set(["", "none", "normal", "auto", "0px", "0", "rgba(0, 0, 0, 0)", "static", "visible", "start", "baseline", "stretch", "row", "repeat", "0% 0%", "auto auto"]);
+const DEFAULTS = { opacity: "1", flexShrink: "1", flexBasis: "auto", flexWrap: "nowrap", minWidth: "0px", minHeight: "0px", maxWidth: "none", maxHeight: "none", textDecorationLine: "none", textTransform: "none", whiteSpace: "normal", transform: "none" };
+export const pick = (cs, names) => Object.fromEntries(names.map((n) => [n, cs[n]]).filter(([n, v]) => v != null && !NONE.has(v) && v !== DEFAULTS[n]));
 
-const TEXT_PROPS = ["color", "fontFamily", "fontSize", "fontWeight", "fontStyle", "lineHeight", "letterSpacing", "textAlign", "textTransform", "textDecorationLine", "whiteSpace"];
-const BOX_PROPS = ["padding", "margin", "borderRadius", "boxShadow", "opacity", "overflow", "backgroundImage", "backgroundSize", "backgroundPosition", "backgroundRepeat", "minWidth", "minHeight", "maxWidth", "maxHeight", "flexGrow", "flexShrink", "flexBasis", "alignSelf", "zIndex", "transform"];
-const FLEX_PROPS = ["justifyContent", "alignItems", "flexWrap", "rowGap", "columnGap"];
+export const TEXT_PROPS = ["color", "fontFamily", "fontSize", "fontWeight", "fontStyle", "lineHeight", "letterSpacing", "textAlign", "textTransform", "textDecorationLine", "whiteSpace"];
+export const BOX_PROPS = ["padding", "margin", "borderRadius", "boxShadow", "opacity", "overflow", "backgroundImage", "backgroundSize", "backgroundPosition", "backgroundRepeat", "minWidth", "minHeight", "maxWidth", "maxHeight", "flexGrow", "flexShrink", "flexBasis", "alignSelf", "zIndex", "transform"];
+export const FLEX_PROPS = ["justifyContent", "alignItems", "flexWrap", "rowGap", "columnGap"];
 
 function borders(cs) {
   const sides = ["Top", "Right", "Bottom", "Left"].map((s) => ({ s, w: cs[`border${s}Width`], st: cs[`border${s}Style`], c: cs[`border${s}Color`] }));
