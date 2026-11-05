@@ -31,6 +31,7 @@ export function mountAgentCursor(canvas, store) {
     const box = canvas.getBoundingClientRect(), r = element.getBoundingClientRect(), z = store.ui.zoom;
     return { x: (r.left - box.left + r.width / 2 - store.ui.panX) / z, y: (r.top - box.top + r.height / 2 - store.ui.panY) / z };
   };
+  const hash = (name) => [...name].reduce((value, char) => (value * 31 + char.charCodeAt(0)) | 0, 0);
 
   function pointer(name) {
     if (pointers.has(name)) return pointers.get(name);
@@ -39,7 +40,7 @@ export function mountAgentCursor(canvas, store) {
     element.innerHTML = `<svg width="14" height="18" viewBox="0 0 14 18"><path d="M1 1l11 7-5 1.5L5 16z" fill="${color}" stroke="#fff" stroke-width="1.2" stroke-linejoin="round"/></svg><span></span>`;
     element.querySelector("span").textContent = name;
     layer.append(element);
-    const made = { name, element, pos: null, walk: 0, quiet: 0, aimed: null };
+    const made = { name, element, pos: null, walk: 0, quiet: 0, aimed: null, idle: true };
     pointers.set(name, made);
     return made;
   }
@@ -49,17 +50,34 @@ export function mountAgentCursor(canvas, store) {
   store.subscribe((reason) => { if (reason === "ui") pointers.forEach(place); });
 
   /** One glide along a curve with easing: slow, quick, slow; it takes longer the farther it goes. */
-  function glide(p, to, mine) {
+  function glide(p, to, mine, first) {
     return new Promise((resolve) => {
       const from = p.pos, dx = to.x - from.x, dy = to.y - from.y;
-      const ms = Math.min(ARRIVE_MS, 240 + Math.hypot(dx, dy) * store.ui.zoom * 0.9); // the way it looks takes the time, not the way in the file
-      const mid = { x: (from.x + to.x) / 2 - dy * 0.12, y: (from.y + to.y) / 2 + dx * 0.12 }; // a slight bow, always the same way
+      const distance = Math.hypot(dx, dy) * store.ui.zoom;
+      const ms = Math.min(ARRIVE_MS, 240 + distance * 0.9);
+      const h = ((hash(p.name) % 18) + 18) % 18, bow = 0.08 + (h % 9) / 100, direction = h >= 9 ? 1 : -1;
+      const mid = { x: (from.x + to.x) / 2 - dy * bow * direction, y: (from.y + to.y) / 2 + dx * bow * direction };
+      const overshoot = distance > 400 ? 8 / store.ui.zoom : 0;
+      const length = Math.hypot(dx, dy) || 1;
+      const end = { x: to.x + dx / length * overshoot, y: to.y + dy / length * overshoot };
+      const travelMs = ms - (overshoot ? 90 : 0);
       const start = performance.now();
       const frame = (now) => {
         if (mine !== p.walk) return resolve();
-        const t = ease(Math.min(1, (now - start) / ms)), u = 1 - t;
-        set(p, { x: u * u * from.x + 2 * u * t * mid.x + t * t * to.x, y: u * u * from.y + 2 * u * t * mid.y + t * t * to.y });
-        if (now - start < ms) requestAnimationFrame(frame); else resolve();
+        const elapsed = now - start;
+        const t = ease(Math.min(1, elapsed / travelMs)), u = 1 - t;
+        set(p, { x: u * u * from.x + 2 * u * t * mid.x + t * t * end.x, y: u * u * from.y + 2 * u * t * mid.y + t * t * end.y });
+        if (elapsed < travelMs) requestAnimationFrame(frame);
+        else if (overshoot) {
+          const settleStart = now;
+          const settle = (settleNow) => {
+            if (mine !== p.walk) return resolve();
+            const s = Math.min(1, (settleNow - settleStart) / 90), out = 1 - Math.pow(1 - s, 2);
+            set(p, { x: end.x + (to.x - end.x) * out, y: end.y + (to.y - end.y) * out });
+            if (s < 1) requestAnimationFrame(settle); else resolve();
+          };
+          requestAnimationFrame(settle);
+        } else resolve();
       };
       requestAnimationFrame(frame);
     });
@@ -70,18 +88,23 @@ export function mountAgentCursor(canvas, store) {
     const mine = ++p.walk;
     clearTimeout(p.quiet);
     const stops = elements.map(pointOf);
+    const first = p.idle;
+    p.idle = false;
     if (!p.pos) set(p, { x: stops[0].x - 140 / store.ui.zoom, y: stops[0].y - 90 / store.ui.zoom }); // the first time it comes in from the upper left
     p.element.classList.remove("away");
     for (const [i, stop] of stops.entries()) {
-      await glide(p, stop, mine);
+      await glide(p, stop, mine, first && i === 0);
       if (i === 0) arrived?.();
       if (mine !== p.walk) return;
-      if (i < stops.length - 1) await sleep(160);
+      if (i < stops.length - 1) {
+        const { width, height } = elements[i].getBoundingClientRect();
+        await sleep(120 + Math.min(240, width * height / 4000));
+      }
       if (mine !== p.walk) return;
     }
-    p.quiet = setTimeout(() => p.element.classList.add("away"), IDLE_MS);
+    p.quiet = setTimeout(() => { p.idle = true; p.element.classList.add("away"); }, IDLE_MS);
   }
-  const leave = (p) => { p.walk++; clearTimeout(p.quiet); p.element.classList.add("away"); };
+  const leave = (p) => { p.walk++; clearTimeout(p.quiet); p.idle = true; p.element.classList.add("away"); };
 
   return {
     /** Before a call runs: the agent's pointer goes to the layers the call is about. Answers when it is at the first, or soon. */
@@ -121,3 +144,4 @@ export function mountAgentCursor(canvas, store) {
     },
   };
 }
+
