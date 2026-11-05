@@ -14,6 +14,7 @@ export const NAME = "editor";
 export const AGENTS = {
   "claude-code": { label: "Claude Code", file: (home) => join(home, ".claude.json"), format: "json" },
   codex: { label: "Codex", file: (home) => join(home, ".codex", "config.toml"), format: "toml" },
+  cursor: { label: "Cursor", file: (home) => join(home, ".cursor", "mcp.json"), format: "json" },
 };
 
 // An edit answers with one of: { text } (the new file), { unchanged: true }, or { invalid } (why the file is not touched).

@@ -51,6 +51,86 @@ test("Claude Code: a missing file is made", async () => {
   assert.equal(JSON.parse(await fs.readFile(path.join(h, ".claude.json"), "utf8")).mcpServers.editor.type, "stdio");
 });
 
+test("Cursor: the entry is added to ~/.cursor/mcp.json and the rest of the file stays", async () => {
+  const h = await home();
+  const file = path.join(h, ".cursor", "mcp.json");
+  const original = { $schema: "https://example.com/cursor.schema.json", mcpServers: { other: { type: "http", url: "http://x" } } };
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await fs.writeFile(file, JSON.stringify(original, null, 2));
+  const result = await connectAgent("cursor", { home: h, url: URL_, run });
+  assert.equal(result.ok, true);
+  assert.equal(result.changed, true);
+  const after = JSON.parse(await fs.readFile(file, "utf8"));
+  assert.equal(after.$schema, original.$schema);
+  assert.deepEqual(after.mcpServers.other, original.mcpServers.other);
+  assert.equal(after.mcpServers.editor.type, "stdio");
+  assert.equal(after.mcpServers.editor.command, "/usr/bin/node");
+  assert.deepEqual(after.mcpServers.editor.args, [path.join(h, ".editor", "bin", "mcp-stdio.mjs")]);
+  assert.deepEqual(after.mcpServers.editor.env, { ELECTRON_RUN_AS_NODE: "1", EDITOR_URL: URL_ });
+  await fs.access(after.mcpServers.editor.args[0]);
+  assert.deepEqual(JSON.parse(await fs.readFile(`${file}.editor-backup`, "utf8")), original);
+});
+
+test("Cursor: a missing configuration is created without a backup", async () => {
+  const h = await home();
+  const file = path.join(h, ".cursor", "mcp.json");
+  const result = await connectAgent("cursor", { home: h, url: URL_, run });
+  assert.equal(result.ok, true);
+  assert.equal(result.changed, true);
+  assert.equal(JSON.parse(await fs.readFile(file, "utf8")).mcpServers.editor.type, "stdio");
+  await assert.rejects(fs.access(`${file}.editor-backup`), { code: "ENOENT" });
+});
+
+test("Cursor: connecting twice with the same values is idempotent", async () => {
+  const h = await home();
+  const options = { home: h, url: URL_, run };
+  assert.equal((await connectAgent("cursor", options)).changed, true);
+  assert.equal((await connectAgent("cursor", options)).changed, false);
+});
+
+test("Cursor: an existing editor entry is updated while other servers stay", async () => {
+  const h = await home();
+  const file = path.join(h, ".cursor", "mcp.json");
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await fs.writeFile(file, JSON.stringify({
+    mcpServers: {
+      editor: { type: "stdio", command: "old-node", args: ["old-relay"], env: { EDITOR_URL: "http://old/mcp" } },
+      other: { type: "http", url: "http://x" },
+    },
+  }, null, 2));
+  const result = await connectAgent("cursor", { home: h, url: URL_, run });
+  assert.equal(result.changed, true);
+  const after = JSON.parse(await fs.readFile(file, "utf8"));
+  assert.equal(after.mcpServers.editor.command, "/usr/bin/node");
+  assert.deepEqual(after.mcpServers.editor.args, [path.join(h, ".editor", "bin", "mcp-stdio.mjs")]);
+  assert.deepEqual(after.mcpServers.editor.env, { ELECTRON_RUN_AS_NODE: "1", EDITOR_URL: URL_ });
+  assert.deepEqual(after.mcpServers.other, { type: "http", url: "http://x" });
+});
+
+test("Cursor: an existing backup is not overwritten", async () => {
+  const h = await home();
+  const file = path.join(h, ".cursor", "mcp.json");
+  const backup = `${file}.editor-backup`;
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await fs.writeFile(file, JSON.stringify({ mcpServers: { editor: { type: "stdio", command: "old-node", args: [] } } }));
+  const sentinel = '{"sentinel":"keep"}\n';
+  await fs.writeFile(backup, sentinel);
+  const result = await connectAgent("cursor", { home: h, url: URL_, run });
+  assert.equal(result.changed, true);
+  assert.equal(await fs.readFile(backup, "utf8"), sentinel);
+});
+
+test("Cursor: a file that is not JSON is left alone and said so", async () => {
+  const h = await home();
+  const file = path.join(h, ".cursor", "mcp.json");
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await fs.writeFile(file, "{ not json");
+  const result = await connectAgent("cursor", { home: h, url: URL_, run });
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "invalid-config-file");
+  assert.equal(await fs.readFile(file, "utf8"), "{ not json");
+});
+
 test("Codex: the table is appended after what is there, comments included, and replaced when the app moves", async () => {
   const h = await home();
   const file = path.join(h, ".codex", "config.toml");
