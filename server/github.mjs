@@ -60,8 +60,10 @@ export function createGithub({ token = () => process.env.GITHUB_TOKEN, fetch = g
 
   async function tree(repo) {
     const data = await ask(repo, `git/trees/${encodeURIComponent(repo.branch ?? "HEAD")}?recursive=1`);
-    const files = (data.tree ?? []).filter((e) => e.type === "blob").map((e) => e.path);
-    return { repo: `${repo.owner}/${repo.name}`, branch: repo.branch ?? "HEAD", files: files.slice(0, MAX_FILES), truncated: Boolean(data.truncated) || files.length > MAX_FILES };
+    const blobs = (data.tree ?? []).filter((e) => e.type === "blob" && typeof e.path === "string");
+    const files = blobs.map((e) => e.path);
+    const entries = blobs.filter((e) => typeof e.sha === "string" && e.sha.length > 0).map((e) => ({ path: e.path, sha: e.sha }));
+    return { repo: `${repo.owner}/${repo.name}`, branch: repo.branch ?? "HEAD", files: files.slice(0, MAX_FILES), entries: entries.slice(0, MAX_FILES), truncated: Boolean(data.truncated) || files.length > MAX_FILES };
   }
 
   async function file(repo, filePath) {

@@ -9,6 +9,16 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { startServer } from "../server/server.mjs";
 import { TOOLS } from "../server/mcp/tools.mjs";
+import { createStore } from "../client/core/store.js";
+
+globalThis.document = {
+  querySelector: () => null,
+  createElement: () => {
+    let fillStyle = "";
+    return { getContext: () => ({ get fillStyle() { return fillStyle; }, set fillStyle(value) { fillStyle = value; } }) };
+  },
+};
+const { createMcpHandlers } = await import("../client/collab/agent-calls.js");
 
 const open = async (options) => {
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "editor-mcp-"));
@@ -47,11 +57,44 @@ test("an agent finds the tools, and the instructions to use them", async () => {
     const names = tools.map((t) => t.name);
     for (const name of ["get_basic_info", "get_selection", "get_node_info", "get_tree_summary", "find_nodes", "get_jsx", "get_screenshot", "write_html", "update_styles", "set_text_content", "create_artboard", "duplicate_nodes", "move_nodes", "get_tokens", "create_tokens", "list_repo_files", "read_repo_file", "list_comment_threads", "finish_working_on_nodes", "list_resources", "open_file"]) assert.ok(names.includes(name), name);
     assert.equal(names.length, TOOLS.length);
+    const writeHtml = tools.find((tool) => tool.name === "write_html");
+    const createArtboard = tools.find((tool) => tool.name === "create_artboard");
+    assert.ok(writeHtml.inputSchema.properties.source);
+    assert.ok(writeHtml.inputSchema.properties.targetNodeId);
+    assert.ok(createArtboard.inputSchema.properties.pageId);
     for (const tool of tools) { assert.equal(tool.inputSchema.type, "object"); assert.ok(tool.description.length > 20, tool.name); }
     assert.match(client.getInstructions(), /get_basic_info/);
     assert.match(textOf(await client.callTool({ name: "get_guide", arguments: { topic: "editor-mcp-instructions" } })), /finish_working_on_nodes/);
     assert.equal((await client.callTool({ name: "get_guide", arguments: { topic: "nope" } })).isError, true);
   } finally { await client.close(); server.close(); }
+});
+
+test("the write_html MCP handler rejects an invalid replacement without changing source metadata", async () => {
+  const store = createStore([]);
+  let artboard, child;
+  store.transact("create", () => {
+    artboard = store.insert({ component: "Frame", name: "Button", parent: null, page: "page-1", style: {}, source: { repo: "o/n@main", path: "Button.tsx", sha: "old" } });
+    child = store.insert({ component: "Text", name: "Child", text: "old", parent: artboard, page: "page-1", style: {} });
+  });
+  const call = createMcpHandlers({
+    store,
+    canvas: { querySelector: () => null },
+    fileId: "file-1",
+    fileName: () => "Test",
+    announce: () => {},
+  });
+
+  await assert.rejects(
+    call("write_html", {
+      html: "<button>New</button>",
+      targetNodeId: child,
+      mode: "replace-children",
+      source: { repo: "o/n@main", path: "Button.tsx", sha: "new" },
+    }),
+    /root Frame artboard/,
+  );
+  assert.equal(store.get(artboard).source.sha, "old");
+  assert.equal(store.get(child).text, "old");
 });
 
 test("files: list, make, copy, rename, all without a page", async () => {

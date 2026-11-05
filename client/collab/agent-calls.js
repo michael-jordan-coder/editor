@@ -309,8 +309,8 @@ function editingTools(ctx) {
   const abbreviate = (name) => String(name).slice(0, NAME_LIMIT);
 
   return {
-    async write_html({ html, targetNodeId, mode }) {
-      const ids = await writeHtml(store, html, { targetId: String(targetNodeId), mode });
+    async write_html({ html, targetNodeId, mode, source }) {
+      const ids = await writeHtml(store, html, { targetId: String(targetNodeId), mode, source });
       ids.forEach(ctx.markChanged);
       return { createdNodeIds: ids, nodeCount: ids.reduce((total, id) => total + store.subtree(id).length, 0) };
     },

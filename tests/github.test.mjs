@@ -31,13 +31,31 @@ test("the repo string is checked, and a bad one asks GitHub nothing", async () =
   assert.equal(fake.calls.length, 0);
 });
 
-test("the tree comes as blob paths, with the token, and one file comes decoded", async () => {
+test("the tree keeps blob paths and usable SHAs, with the token, and one file comes decoded", async () => {
   const fake = fakeGithub((url) => url.includes("git/trees")
-    ? { status: 200, body: { tree: [{ path: "src/a.css", type: "blob" }, { path: "src", type: "tree" }, { path: "README.md", type: "blob" }] } }
+    ? {
+      status: 200,
+      body: {
+        tree: [
+          { path: "src/a.css", type: "blob", sha: "sha-a" },
+          { path: "src", type: "tree", sha: "tree-sha" },
+          { path: "README.md", type: "blob", sha: "sha-readme" },
+          { path: "no-sha.txt", type: "blob" },
+          { path: "empty-sha.txt", type: "blob", sha: "" },
+          { type: "blob", sha: "missing-path-sha" },
+        ],
+      },
+    }
     : { status: 200, body: { type: "file", content: Buffer.from(":root { --radius: 8px; }").toString("base64") } });
   const github = createGithub({ token: () => "t", fetch: fake.fetch });
   const tree = await call(github, "?repo=o/n@main");
-  assert.deepEqual(tree.body, { repo: "o/n", branch: "main", files: ["src/a.css", "README.md"], truncated: false });
+  assert.deepEqual(tree.body, {
+    repo: "o/n",
+    branch: "main",
+    files: ["src/a.css", "README.md", "no-sha.txt", "empty-sha.txt"],
+    entries: [{ path: "src/a.css", sha: "sha-a" }, { path: "README.md", sha: "sha-readme" }],
+    truncated: false,
+  });
   assert.match(fake.calls[0].url, /\/repos\/o\/n\/git\/trees\/main\?recursive=1$/);
   assert.equal(fake.calls[0].headers.authorization, "Bearer t");
   const file = await call(github, "?repo=o/n@main&path=src/a.css");

@@ -172,14 +172,38 @@ export async function pasteHtml(store, view, html, { width = 1440 } = {}) {
   }
 }
 
+/** Replaces an artboard's children without changing the artboard itself. */
+export function replaceChildren(store, targetId, trees, source) {
+  const target = store.get(targetId);
+  if (!target) throw new Error(`There is no node ${targetId}`);
+  if (target.component !== "Frame" || target.parent != null) throw new Error("replace-children needs a root Frame artboard");
+  if (!trees.length) throw new Error("Nothing in that HTML could be imported");
+
+  const made = [];
+  store.transact("Replace artboard contents", () => {
+    const insert = (tree, parent) => {
+      const id = store.insert({ ...tree.node }, { parent });
+      tree.children.forEach((child) => insert(child, id));
+      return id;
+    };
+    store.remove(store.children(target.id).map((child) => child.id));
+    trees.forEach((tree) => made.push(insert(tree, target.id)));
+    if (source !== undefined) store.update(target.id, { source: structuredClone(source) });
+  });
+  return made;
+}
+
 /**
  * write_html for an agent: the HTML becomes nodes inside a node, or in
  * its place. Returns the IDs of the new top-level nodes.
  */
-export async function writeHtml(store, html, { targetId, mode = "insert-children" }) {
+export async function writeHtml(store, html, { targetId, mode = "insert-children", source }) {
   const target = store.get(targetId);
   if (!target) throw new Error(`There is no node ${targetId}`);
   if (mode === "insert-children" && target.component !== "Frame") throw new Error(`${target.name} is ${target.component === "Text" ? "text" : `a ${target.component}`} and cannot have children; insert into a frame, or use mode "replace"`);
+  if (mode === "replace-children" && (target.component !== "Frame" || target.parent != null)) throw new Error("replace-children needs a root Frame artboard");
+  if (source !== undefined && (!source || typeof source.repo !== "string" || typeof source.path !== "string" || typeof source.sha !== "string" || !source.repo || !source.path || !source.sha)) throw new Error("source metadata needs repo, path, and sha");
+  if (source !== undefined && (mode === "replace" || target.component !== "Frame" || target.parent != null)) throw new Error("source metadata needs a root Frame artboard and a non-destructive write mode");
   const frame = await layOut(html, parseFloat(target.style?.width) || 1440, store.tokens());
   try {
     const win = frame.contentWindow;
@@ -187,6 +211,7 @@ export async function writeHtml(store, html, { targetId, mode = "insert-children
     const bodyCs = win.getComputedStyle(body);
     const trees = [...body.childNodes].flatMap((k) => (k.nodeType === 1 ? convert(k, win, bodyCs) : k.nodeType === 3 && clean(k.textContent) ? [{ node: { component: "Text", name: clean(k.textContent).slice(0, 40), text: clean(k.textContent), style: pick(bodyCs, TEXT_PROPS) }, children: [] }] : []));
     if (!trees.length) throw new Error("Nothing in that HTML could be imported");
+    if (mode === "replace-children") return replaceChildren(store, targetId, trees, source);
     const made = [];
     store.transact(mode === "replace" ? "Replace with HTML" : "Write HTML", () => {
       const insert = (tree, parent, index, extra = {}) => {
@@ -202,6 +227,7 @@ export async function writeHtml(store, html, { targetId, mode = "insert-children
         store.remove(target.id);
       } else {
         trees.forEach((tree) => made.push(insert(tree, target.id)));
+        if (source !== undefined) store.update(target.id, { source: structuredClone(source) });
       }
     });
     return made;

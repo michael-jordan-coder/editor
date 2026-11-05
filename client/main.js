@@ -18,7 +18,7 @@ import { createMcpHandlers } from "./collab/agent-calls.js";
 import { mountTheme } from "./panels/theme.js";
 import { toast } from "./ui/toast.js";
 import { tokenHost } from "./core/tokens.js";
-import { COMPONENTS, componentsPage, componentsPrompt, importRepoTokens } from "./features/github.js";
+import { COMPONENTS, componentArtboards, componentAssignments, componentImportPlan, componentsPage, componentsPrompt, importRepoTokens } from "./features/github.js";
 
 // The file lives on the server (server/server.mjs): /file/:id is the owner's, /f/:id a visitor's, read-only.
 const FILE_ID = location.pathname.match(/^\/file\/([\w-]+)/)?.[1];
@@ -141,16 +141,16 @@ const theme = mountTheme(leftPanel, store, {
   repo: file.repo ?? null,
   setRepo: (repo) => put({ ...content(), repo }),
   importRepo: async (repo) => {
-    const { added, updated, dropped } = await importRepoTokens(store, repo);
+    const { added, updated, dropped, entries, repo: sourceRepo, branch } = await importRepoTokens(store, repo);
     const skipped = dropped.length ? `, ${dropped.length} skipped (${dropped.slice(0, 3).map((d) => d.name).join(", ")}${dropped.length > 3 ? "…" : ""})` : "";
     toast(`${added} tokens added, ${updated} updated${skipped}`);
     // Three agents share the components, each a column of the Components page.
     if (!agentPanel) return;
     const pageId = componentsPage(store);
-    const per = Math.ceil(COMPONENTS.length / 3);
-    await Promise.all([0, 1, 2].map((i) => {
-      const names = COMPONENTS.slice(i * per, (i + 1) * per);
-      return agentPanel.ask(componentsPrompt(repo, pageId, names, i * 1040), `Import components from ${repo}: ${names.join(", ")}`);
+    const plan = componentImportPlan(sourceRepo ?? repo, branch, entries, componentArtboards(store, pageId), COMPONENTS);
+    await Promise.all(componentAssignments(plan).map((assignments, i) => {
+      const names = assignments.map((item) => item.name);
+      return agentPanel.ask(componentsPrompt(sourceRepo ?? repo, pageId, assignments, i * 1040), `Import components from ${repo}: ${names.join(", ")}`);
     }));
   },
 });
